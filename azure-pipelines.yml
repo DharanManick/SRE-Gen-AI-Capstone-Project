@@ -1,0 +1,82 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - release/*
+  paths:
+    include:
+      - src/**
+      - pom.xml
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  buildConfiguration: 'Release'
+  javaVersion: '11'
+
+stages:
+  - stage: Build
+    displayName: 'Build and Test'
+    jobs:
+      - job: BuildAndTest
+        displayName: 'Maven Build and Unit Tests'
+        steps:
+          - task: UseDotNet@2
+            displayName: 'Use Java $(javaVersion)'
+            inputs:
+              packageType: 'jdk'
+              version: '$(javaVersion)'
+              includePreviewVersions: false
+
+          - task: Maven@3
+            displayName: 'Maven Clean Install'
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'clean install'
+              options: '-DskipTests'
+              publishJUnitResults: false
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '$(javaVersion)'
+
+          - task: Maven@3
+            displayName: 'Run Unit Tests'
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'test'
+              publishJUnitResults: false
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '$(javaVersion)'
+
+          - task: PublishTestResults@2
+            displayName: 'Publish Test Results'
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/surefire-reports/TEST-*.xml'
+              searchFolder: '$(Build.SourcesDirectory)'
+              testRunTitle: 'Java Unit Tests'
+              publishRunAttachments: true
+
+          - task: PublishCodeCoverageResults@1
+            displayName: 'Publish Code Coverage'
+            condition: succeededOrFailed()
+            inputs:
+              codeCoverageTool: 'JaCoCo'
+              summaryFileLocation: '**/jacoco.xml'
+              reportDirectory: '**/site/jacoco'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Build Artifacts'
+            condition: succeeded()
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)'
+              artifactName: 'java-service'
+              publishLocation: 'Container'
