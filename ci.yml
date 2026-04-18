@@ -1,29 +1,89 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [ main, develop ]
   push:
     branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+  pull_request_target:
+    types: [ opened, synchronize, reopened ]
+
+permissions:
+  contents: read
+  security-events: write
+  checks: write
 
 jobs:
   test:
+    name: Unit Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      - run: npm install
-      - run: npm test
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint --if-present
+
+      - name: Run unit tests
+        run: npm test -- --coverage
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Test Results (${{ matrix.node-version }})
+          path: 'coverage/test-results.xml'
+          reporter: 'jest-junit'
+          fail-on-error: false
 
   codeql:
+    name: CodeQL Security Scan
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript' ]
     steps:
-      - uses: actions/checkout@v3
-      - uses: github/codeql-action/init@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          languages: javascript
-      - uses: github/codeql-action/analyze@v3
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
